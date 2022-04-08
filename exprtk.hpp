@@ -49,6 +49,7 @@
 #include <limits>
 #include <list>
 #include <map>
+#include <regex>
 #include <set>
 #include <stack>
 #include <stdexcept>
@@ -441,7 +442,7 @@ namespace exprtk
                                     "if", "else", "ilike",  "in", "like", "and",  "nand", "nor",
                                     "not",  "null",  "or",   "repeat", "return",  "shl",  "shr",
                                     "swap", "switch", "true",  "until", "var",  "while", "xnor",
-                                    "xor", "&", "|"
+                                    "xor", "&", "|", "match"
                                   };
 
       static const std::size_t reserved_words_size = sizeof(reserved_words) / sizeof(std::string);
@@ -455,7 +456,7 @@ namespace exprtk
                                     "expm1",  "false",   "floor",  "for",   "frac",  "grad2deg",
                                     "hypot", "iclamp", "if",  "else", "ilike", "in",  "inrange",
                                     "like",  "log",  "log10", "log2",  "logn",  "log1p", "mand",
-                                    "max", "min",  "mod", "mor",  "mul", "ncdf",  "nand", "nor",
+                                    "match", "max", "min",  "mod", "mor",  "mul", "ncdf",  "nand", "nor",
                                     "not",   "not_equal",   "null",   "or",   "pow",  "rad2deg",
                                     "repeat", "return", "root", "round", "roundn", "sec", "sgn",
                                     "shl", "shr", "sin", "sinc", "sinh", "sqrt",  "sum", "swap",
@@ -475,7 +476,7 @@ namespace exprtk
                                     "ncdf",  "pow",  "root",  "round",  "roundn",  "sec", "sgn",
                                     "sin", "sinc", "sinh", "sqrt", "sum", "swap", "tan", "tanh",
                                     "trunc",  "not_equal",  "inrange",  "deg2grad",   "deg2rad",
-                                    "rad2deg", "grad2deg"
+                                    "rad2deg", "grad2deg", "match"
                                   };
 
       static const std::size_t base_function_list_size = sizeof(base_function_list) / sizeof(std::string);
@@ -677,6 +678,19 @@ namespace exprtk
                    wild_card.data(), wild_card.data() + wild_card.size(),
                    str.data(), str.data() + str.size(),
                    '*', '?');
+      }
+
+      inline bool regexp_match(const std::string& pattern,
+                             const std::string& str)
+      {
+          try {
+            std::string start("^");
+            std::string end("$");
+            std::regex re(start + pattern + end);
+            return std::regex_search(str, re);
+          } catch (std::regex_error& e) {
+            return false;
+          }
       }
 
       inline bool sequence_match(const std::string& pattern,
@@ -4649,7 +4663,7 @@ namespace exprtk
          e_trunc   , e_assign  , e_addass  , e_subass  ,
          e_mulass  , e_divass  , e_modass  , e_in      ,
          e_like    , e_ilike   , e_multi   , e_smulti  ,
-         e_swap    ,
+         e_swap    , e_match   ,
 
          // Do not add new functions/operators after this point.
          e_sf00 = 1000, e_sf01 = 1001, e_sf02 = 1002, e_sf03 = 1003,
@@ -5190,7 +5204,7 @@ namespace exprtk
             e_vecopvecass   , e_vecfunc       , e_vecvecswap  , e_vecvecineq   ,
             e_vecvalineq    , e_valvecineq    , e_vecvecarith , e_vecvalarith  ,
             e_valvecarith   , e_vecunaryop    , e_vecondition , e_break        ,
-            e_continue      , e_swap
+            e_continue      , e_swap          , e_match
          };
 
          typedef T value_type;
@@ -13184,6 +13198,17 @@ namespace exprtk
       };
 
       template <typename T>
+      struct match_op : public opr_base<T>
+      {
+         typedef typename opr_base<T>::Type Type;
+
+         static inline T process(const T&, const T&) { return std::numeric_limits<T>::quiet_NaN(); }
+         static inline T process(const std::string& t1, const std::string& t2) { return (details::regexp_match(t2,t1) ? T(1) : T(0)); }
+         static inline typename expression_node<T>::node_type type() { return expression_node<T>::e_match; }
+         static inline details::operator_type operation() { return details::e_match; }
+      };
+
+      template <typename T>
       struct inrange_op : public opr_base<T>
       {
          typedef typename opr_base<T>::Type Type;
@@ -20509,7 +20534,7 @@ namespace exprtk
             e_bf_sinc      , e_bf_sinh     , e_bf_sqrt     , e_bf_sum     ,
             e_bf_swap      , e_bf_tan      , e_bf_tanh     , e_bf_trunc   ,
             e_bf_not_equal , e_bf_inrange  , e_bf_deg2grad , e_bf_deg2rad ,
-            e_bf_rad2deg   , e_bf_grad2deg
+            e_bf_rad2deg   , e_bf_grad2deg , e_bf_match
          };
 
          enum settings_control_structs
@@ -21788,6 +21813,7 @@ namespace exprtk
                                            static const std::string s_in    = "in"   ;
                                            static const std::string s_like  = "like" ;
                                            static const std::string s_ilike = "ilike";
+                                           static const std::string s_match = "match";
                                            static const std::string s_and1  = "&"    ;
                                            static const std::string s_or1   = "|"    ;
                                            static const std::string s_not   = "not"  ;
@@ -21853,6 +21879,11 @@ namespace exprtk
                                            else if (details::imatch(current_token().value,s_ilike))
                                            {
                                               current_state.set(e_level04, e_level04, details::e_ilike);
+                                              break;
+                                           }
+                                           else if (details::imatch(current_token().value,s_match))
+                                           {
+                                              current_state.set(e_level04, e_level04, details::e_match);
                                               break;
                                            }
                                            else if (details::imatch(current_token().value,s_not))
@@ -27492,6 +27523,7 @@ namespace exprtk
                    (details::e_in     == operation) ||
                    (details::e_like   == operation) ||
                    (details::e_ilike  == operation) ||
+                   (details::e_match  == operation) ||
                    (details::e_assign == operation) ||
                    (details::e_addass == operation) ||
                    (details::e_swap   == operation) ;
@@ -35766,6 +35798,7 @@ namespace exprtk
          case_stmt(details::e_in    , details::in_op   ) \
          case_stmt(details::e_like  , details::like_op ) \
          case_stmt(details::e_ilike , details::ilike_op) \
+         case_stmt(details::e_match , details::match_op) \
 
          template <typename T0, typename T1>
          inline expression_node_ptr synthesize_str_xrox_expression_impl(const details::operator_type& opr,
@@ -35978,6 +36011,8 @@ namespace exprtk
                result = node_allocator_->allocate_c<details::literal_node<Type> >(details::like_op <Type>::process(s0,s1));
             else if (details::e_ilike == opr)
                result = node_allocator_->allocate_c<details::literal_node<Type> >(details::ilike_op<Type>::process(s0,s1));
+            else if (details::e_match == opr)
+               result = node_allocator_->allocate_c<details::literal_node<Type> >(details::match_op<Type>::process(s0,s1));
             else
             {
                expression_node_ptr temp = synthesize_sos_expression_impl<const std::string, const std::string>(opr, s0, s1);
@@ -36372,7 +36407,7 @@ namespace exprtk
                  (details::e_or    == operation) || (details::e_nor  == operation) ||
                  (details::e_xor   == operation) || (details::e_xnor == operation) ||
                  (details::e_in    == operation) || (details::e_like == operation) ||
-                 (details::e_ilike == operation)
+                 (details::e_ilike == operation) || (details::e_match == operation)
                )
             {
                return node_allocator_->allocate_c<literal_node_t>(T(0));
@@ -36387,7 +36422,8 @@ namespace exprtk
             if (
                  (details::e_in    == operation) ||
                  (details::e_like  == operation) ||
-                 (details::e_ilike == operation)
+                 (details::e_ilike == operation) ||
+                 (details::e_match == operation)
                )
             {
                free_all_nodes(*node_allocator_,branch);
